@@ -1,26 +1,21 @@
-# Sourcebook — FromJapan sourcing library
+# Sourcebook v2 — Railway deployment
 
-A deployable Node.js app with your FromJapan history preloaded. Generates Japanese search ideas, provides marketplace search links, follows/unfollows items and searches, supports bulk selection, and imports CSV/JSON exports without duplicates.
+Replace the files in your existing GitHub repository with **the contents of this folder**, not the parent folder. Railway will redeploy automatically.
 
-## Deploy to Railway
+## Railway variables
 
-1. Create a private GitHub repository and upload this folder's contents (not the enclosing folder).
-2. In Railway, create a new project → Deploy from GitHub repo.
-3. Add a Railway PostgreSQL service to the project.
-4. In the web service's Variables, set `DATABASE_URL` to the PostgreSQL connection string (use Railway's variable reference if available).
-5. Deploy. Railway detects `npm start` and supplies `PORT` automatically.
-6. Set up a Railway public domain under the service's Networking settings.
+- `DATABASE_URL`: reference your PostgreSQL database (`${{Postgres.DATABASE_URL}}`). Keep the same database from v1 to preserve follows/imports.
+- `APP_PASSWORD`: **strongly recommended**. Protects the entire app with HTTP Basic authentication. Username can be anything; password is this value.
+- `MONITOR_ENABLED=true`: enables an hourly best-effort check for followed searches. Omit/false for manual-only checks.
 
-The app creates its table and imports the included seed history on first launch. Subsequent deployments preserve edits in PostgreSQL. Without `DATABASE_URL`, local changes are saved to `data/store.json` but **will not survive Railway redeploys** without persistent storage.
+## Monitoring limitations
 
-## Run locally
+The app attempts public HTML searches on Yahoo Auctions and Mercari. Neither site is guaranteed to permit automated server-side requests, and both can change their markup or block Railway IPs. The Diagnostics panel displays errors and zero-results. A check can find only URL references, not reliable price/image/title details. It checks up to 8 distinct followed queries per run, across 2 marketplaces, to limit load. No notifications, background queue, authenticated scraping, or guaranteed monitoring is provided. Additional sources (Mandarake, Suruga-ya, Rakuten) remain manual search links.
 
-`npm install && npm start` then visit http://localhost:3000.
+## Buying through FromJapan
 
-## Important limitations
+The primary button opens FromJapan. The listing panel offers **Copy URL** for the original marketplace listing to paste into FromJapan's URL-order flow. There is no verified one-click deep link to FromJapan for arbitrary listings, so the app deliberately does not invent one.
 
-- Marketplace buttons open live search pages, but this release **does not automatically fetch listings or send alerts**.
-- Search suggestions use offline title heuristics, not AI translation; review them before following.
-- The original export contained generic image placeholders; these are excluded. Image URLs may expire or block hotlinking.
-- The app does not include authentication. Keep the deployment private until login protection is added. Anyone with its public URL can view and modify the collection.
-- The seed contains purchase history, including product prices and source URLs. Do not publish the repository publicly.
+## Data safety
+
+Keep your GitHub repository private and set `APP_PASSWORD` before generating or sharing a public Railway domain. The bundled `data/seed.json` contains purchase titles and links, and should not be placed in a public repository. Your previous database remains intact if you reuse the same PostgreSQL instance.

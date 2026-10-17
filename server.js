@@ -9,100 +9,135 @@ const clean=s=>String(s||'').trim();
 const badTitle=t=>/Notification Based on the Act on Specified Commercial Transactions|FROM JAPAN Ltd\. Company info/i.test(t);
 const validImage=t=>/^https?:\/\//.test(t||'')&&!/noimage|no-image|placeholder/i.test(t);
 const marketplace=url=>{try{let u=new URL(url);if(u.hostname.includes('mercari'))return 'Mercari';if(u.hostname.includes('rakuten'))return 'Rakuten';if(u.hostname.includes('mandarake'))return 'Mandarake';if(u.hostname.includes('culturestation'))return 'Culture Station';if(u.searchParams.has('item_addr'))return 'Yahoo Auctions';return u.hostname.replace(/^www\./,'')}catch{return 'Other'}};
-// Sourcebook v5: publication-first, conservative extraction. Seller copy is never a default query.
-const PUBLICATIONS=[
-  [/週刊\s*プレイボーイ|週プレ/i,'週刊プレイボーイ','Weekly Playboy'],
-  [/プレイボーイ\s*CUSTOM/i,'プレイボーイ CUSTOM','Playboy CUSTOM'],
-  [/\bPOPEYE\b|ポパイ/i,'ポパイ','Popeye magazine'],
-  [/週刊少年ジャンプ|少年ジャンプ/i,'少年ジャンプ','Shonen Jump'],
-  [/ファミ通/i,'ファミ通','Famitsu'],[/アニメージュ/i,'アニメージュ','Animage'],
-  [/エヴァンゲリオン/i,'エヴァンゲリオン','Evangelion'],[/ガンダム/i,'ガンダム','Gundam'],
-  [/ゲームボーイ/i,'ゲームボーイ','Game Boy'],[/セガサターン/i,'セガサターン','Sega Saturn'],
-  [/スーパーファミコン/i,'スーパーファミコン','Super Famicom'],
-  [/ドラゴンボール/i,'ドラゴンボール','Dragon Ball'],
-  [/\bCASSETTE\b|カセットテープ|カセット/i,'カセット','Cassette tapes'],
-  [/パンフレット/i,'パンフレット','Pamphlets'],[/写真集/i,'写真集','Photo books']
-];
-const SELLER_NOISE=/(?:送料無料|送料込み|中古品?|即決|美品|希少|激レア|レア物|ジャンク|出品|匿名配送|まとめ売り|古本|当時物|昭和レトロ|絶版|未使用|付録なし|傷あり|状態良好|入手困難|コレクション|切り抜き|現状品|セット販売)/g;
-function identify(title){
- const raw=clean(title).normalize('NFKC');
- // Match specific titles before broad aliases (CUSTOM before Weekly Playboy where both occur).
- const custom=PUBLICATIONS.find(x=>/CUSTOM/.test(x[1])&&x[0].test(raw));
- const known=custom||PUBLICATIONS.find(x=>x[0].test(raw));
- let subject=known?.[1]||'';let english=known?.[2]||'';
- if(!subject){
-  let t=raw.replace(/【([^】]+)】/g,'$1 ').split(/[■◆●★☆※|｜\n]/)[0];
-  t=t.replace(SELLER_NOISE,'').replace(/(?:19|20)\d{2}.*$/,'').replace(/(?:昭和|昭)\s*\d{1,2}.*$/,'')
-   .replace(/\b(?:No\.?|vol\.?|issue)\s*\d+.*$/i,'').replace(/\b\d{5,}[-_]?\d*\b/g,'')
-   .replace(/[「」『』【】\[\]()（）<>]/g,' ').replace(/[／/:：;,、。\-]+.*$/,'').replace(/\s+/g,' ').trim();
-  // Unknown listings are NOT promoted to searches when the candidate is too long or ambiguous.
-  if(t.length>=2&&t.length<=18&&!/\d{3,}/.test(t))subject=t;
- }
- const showa=raw.match(/(?:昭和|昭)\s*(\d{1,2})(?:年|[\/\.\-])/);
- const western=raw.match(/(?:19|20)\d{2}/);
- let year=showa?1925+Number(showa[1]):western?Number(western[0]):null;
- if(year&&(year<1900||year>new Date().getFullYear()+1))year=null;
- const afterDate=showa?raw.slice(showa.index+showa[0].length):western?raw.slice(western.index+western[0].length):'';
- const mm=afterDate.match(/^\s*(\d{1,2})\s*(?:月|[\/\.\-])/);
- const month=mm&&Number(mm[1])>=1&&Number(mm[1])<=12?Number(mm[1]):null;
- return {subject,english,year,month,recognized:!!known};
-}
-function suggestions(title){
- const info=identify(title), raw=clean(title).normalize('NFKC');
- let subject=info.subject, english=info.english;
- // Preserve useful publication and series names even in long seller-written titles.
- if(!subject){
-  const patterns=[/\b[A-Z][A-Z0-9 ]{2,25}\s+MOOK\b/i,/[^\s「」『』【】()（）]{2,20}図鑑\s*\d{0,3}/,/[^\s「」『』【】()（）]{2,18}(?:ムック|雑誌|画報|特集号)/];
-  for(const pattern of patterns){const m=raw.match(pattern);if(m){subject=m[0].trim();break}}
- }
- if(!subject){
-  let t=raw.replace(/【([^】]+)】/g,'$1 ').replace(SELLER_NOISE,' ')
-   .replace(/(?:19|20)\d{2}.*$/,' ').replace(/(?:昭和|昭)\s*\d{1,2}.*$/,' ')
-   .replace(/(?:No\.?|vol\.?|issue)\s*\d+.*$/i,' ').replace(/\b\d{5,}\b/g,' ')
-   .replace(/[「」『』【】\[\]()（）<>]/g,' ').replace(/\s+/g,' ').trim();
-  // Take a coherent first phrase rather than dropping the entire item.
-  const part=t.split(/[|｜■◆●★☆※、。:：／/]/)[0].trim();
-  const m=part.match(/^.{2,28}?(?=\s{2,}|$)/);
-  subject=(m?.[0]||part).slice(0,28).trim();
-  if(!subject||/^\d+$/.test(subject))subject=raw.slice(0,28).trim();
- }
- const out=[];const add=(query,kind,translation)=>{query=clean(query);if(query&&!out.some(x=>x.query===query))out.push({id:id(query),query,kind,translation,followed:false})};
- add(subject,'Core',english||'');
- // For descriptive generic terms, retain a specific phrase as a second option.
- if(['パンフレット','写真集'].includes(subject)){
-  const specific=raw.replace(SELLER_NOISE,' ').replace(/\s+/g,' ').trim().slice(0,35);
-  if(specific!==subject)add(specific,'Specific','');
- }
- if(info.year){add(`${subject} ${info.year}`,'Refine',english?`${english} (${info.year})`:'');
-  if(info.month)add(`${subject} ${info.year} ${info.month}月`,'Exact',english?`${english} (${info.year}, month ${info.month})`:'');}
- return out;
-}
+// v9: inspect the actual product, not arbitrary prefixes from a seller listing.
+const intelligence=require('./intelligence');
+const {identify,searches,profileId,clean:ic}=intelligence;
 function refreshSuggestions(x){
  const previous=x.suggestions||[];
- const followed=new Set(previous.filter(s=>s.followed).map(s=>s.query));
- const translations=new Map(previous.filter(s=>s.translationEdited).map(s=>[s.query,s.translation]));
- x.suggestions=suggestions(x.title).map(s=>({...s,followed:followed.has(s.query),translation:translations.get(s.query)??s.translation??'',translationEdited:translations.has(s.query)}));
- for(const old of previous.filter(v=>v.followed&&!x.suggestions.some(n=>n.query===v.query)))x.suggestions.push(old);
+ const oldByQuery=new Map(previous.map(s=>[s.query,s]));
+ const generated=searches(x.identity||identify(x.title));
+ x.suggestions=generated.map(s=>{
+  const old=oldByQuery.get(s.query);
+  return {...s,followed:!!old?.followed,translation:old?.translationEdited?old.translation:(s.translation||old?.translation||''),translationEdited:!!old?.translationEdited};
+ });
+ // A followed search is user intent, even if the new identifier would no longer suggest it.
+ for(const old of previous.filter(v=>v.followed&&!x.suggestions.some(n=>n.query===v.query)))x.suggestions.push({...old,kind:'Saved',reason:'Previously followed search — preserved',confidence:old.confidence||.5});
  return x;
 }
-function normalize(r){let title=clean(r.title),url=clean(r.url);if(!title||badTitle(title)||!url)return null;let details=clean(r.details),m=details.match(/Auction ID \/ Order No\s+([^\s]+)/),charge=details.match(/Charge 1\s+([\d,]+)\s+yen/);let key=m?m[1]:url.split('?')[0]+'|'+title;return {id:id(key),title,url,thumbnail:validImage(r.thumbnail)?r.thumbnail:null,details,auctionId:m?m[1]:null,priceYen:charge?Number(charge[1].replace(/,/g,'')):null,marketplace:marketplace(url),page:r.page||null,followed:false,notes:'',suggestions:suggestions(title)}}
-
-// Human-readable English glosses. These are approximate until manually edited.
-function gloss(jp){
- const info=identify(jp);if(!info.english)return '';
- const date=info.year?` (${info.year}${info.month?', '+String(info.month).padStart(2,'0'):''})`:'';
- return info.english+date;
+function gloss(jp){const info=identify(jp);return info.english||''}
+function enrich(x){
+ x.trashed=!!x.trashed;
+ if(x.identity?.source==='manual' && x.identity.query){x.identity=identify(x.title,{...x.identity,query:x.identity.query});}
+ else if(!['ai','catalog'].includes(x.identity?.source))x.identity=identify(x.title);
+ x.profileId=profileId(x.identity);
+ if(!x.translationEdited)x.translation=x.translation||gloss(x.title);
+ refreshSuggestions(x);return x;
 }
-function enrich(x){x.trashed=!!x.trashed;x.translation=x.translationEdited?x.translation:gloss(x.title);refreshSuggestions(x);return x}
+function rebuildProfiles(){
+ const previous=new Map((state.profiles||[]).map(p=>[p.id,p]));
+ const mapped=new Map();
+ for(const item of state.items.filter(x=>!x.trashed)){
+  const info=item.identity||identify(item.title);if(!info.query)continue;
+  const key=item.profileId||profileId(info);if(!key)continue;
+  if(!mapped.has(key)){
+   const old=previous.get(key)||{};
+   mapped.set(key,{id:key,name:old.name||info.query,query:old.query||info.query,type:info.type,
+    source:info.source,followed:!!old.followed,manualName:!!old.manualName,manualQuery:!!old.manualQuery,
+    itemIds:[],examples:[],confidence:info.confidence,yearMin:null,yearMax:null});
+  }
+  const p=mapped.get(key);p.itemIds.push(item.id);
+  if(/^https?:\/\//.test(item.thumbnail||'')&&p.examples.length<4)p.examples.push(item.thumbnail);
+  if(info.year){p.yearMin=Math.min(p.yearMin??info.year,info.year);p.yearMax=Math.max(p.yearMax??info.year,info.year)}
+  p.confidence=Math.min(p.confidence,info.confidence);
+ }
+ // Keep user-followed profiles even after temporarily trashing all related purchases.
+ for(const [key,old] of previous)if(old.followed&&!mapped.has(key))mapped.set(key,{...old,itemIds:[],examples:[]});
+ state.profiles=[...mapped.values()].sort((a,b)=>b.itemIds.length-a.itemIds.length||a.name.localeCompare(b.name,'ja'));
+}
+function normalize(r){let title=clean(r.title),url=clean(r.url);if(!title||badTitle(title)||!url)return null;let details=clean(r.details),m=details.match(/Auction ID \/ Order No\s+([^\s]+)/),charge=details.match(/Charge 1\s+([\d,]+)\s+yen/);let key=m?m[1]:url.split('?')[0]+'|'+title;return {id:id(key),title,url,thumbnail:validImage(r.thumbnail)?r.thumbnail:null,details,auctionId:m?m[1]:null,priceYen:charge?Number(charge[1].replace(/,/g,'')):null,marketplace:marketplace(url),page:r.page||null,followed:false,notes:'',suggestions:[],identity:identify(title)}}
+
 function fj(q){return 'https://www.fromjapan.co.jp/japan/en/item/search/'+encodeURIComponent(q).replace(/%20/g,'+')+'/Al_11_Yh_RaRmMr_N_N_0A00ja0000_N/'}
-function importRows(rows){let existing=new Map(state.items.map(x=>[x.id,x]));let added=0,updated=0;for(let row of rows){let x=normalize(row);if(!x)continue;let old=existing.get(x.id);if(old){old.thumbnail=old.thumbnail||x.thumbnail;old.auctionId=old.auctionId||x.auctionId;old.priceYen=old.priceYen??x.priceYen;updated++}else{existing.set(x.id,x);added++}}state.items=[...existing.values()].map(enrich);return {added,updated,total:state.items.length}}
-async function init(){if(process.env.DATABASE_URL){const {Pool}=require('pg');pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.PGSSLMODE==='disable'?false:{rejectUnauthorized:false}});await pool.query('CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY, value JSONB NOT NULL)');let r=await pool.query('SELECT value FROM app_state WHERE id=1');if(r.rows.length)state=r.rows[0].value}else if(fs.existsSync(STORE)){state=JSON.parse(fs.readFileSync(STORE,'utf8'))}state.listings ||= [];state.checks ||= [];state.items=(state.items||[]).map(enrich);if(!state.items.length){const seed=JSON.parse(fs.readFileSync(path.join(__dirname,'data','seed.json'),'utf8'));importRows(seed);await save()}}
+function importRows(rows){let existing=new Map(state.items.map(x=>[x.id,x]));let added=0,updated=0;for(let row of rows){let x=normalize(row);if(!x)continue;let old=existing.get(x.id);if(old){old.thumbnail=old.thumbnail||x.thumbnail;old.auctionId=old.auctionId||x.auctionId;old.priceYen=old.priceYen??x.priceYen;updated++}else{existing.set(x.id,x);added++}}state.items=[...existing.values()].map(enrich);rebuildProfiles();return {added,updated,total:state.items.length}}
+async function init(){if(process.env.DATABASE_URL){const {Pool}=require('pg');pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.PGSSLMODE==='disable'?false:{rejectUnauthorized:false}});await pool.query('CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY, value JSONB NOT NULL)');let r=await pool.query('SELECT value FROM app_state WHERE id=1');if(r.rows.length)state=r.rows[0].value}else if(fs.existsSync(STORE)){state=JSON.parse(fs.readFileSync(STORE,'utf8'))}state.listings ||= [];state.checks ||= [];state.profiles ||= [];state.items=(state.items||[]).map(enrich);rebuildProfiles();if(!state.items.length){const seed=JSON.parse(fs.readFileSync(path.join(__dirname,'data','seed.json'),'utf8'));importRows(seed);await save()}else await save()}
 function save(){writeQueue=writeQueue.then(async()=>{if(pool)await pool.query('INSERT INTO app_state(id,value) VALUES(1,$1::jsonb) ON CONFLICT(id) DO UPDATE SET value=EXCLUDED.value',[JSON.stringify(state)]);else fs.writeFileSync(STORE,JSON.stringify(state))});return writeQueue}
 app.get('/api/items',(req,res)=>res.json({items:state.items,total:state.items.length}));
 app.post('/api/import',async(req,res)=>{try{let {filename='',content}=req.body;if(typeof content!=='string')throw Error('Missing file content');let rows;if(filename.toLowerCase().endsWith('.csv'))rows=parse(content,{columns:true,skip_empty_lines:true,bom:true});else{let json=JSON.parse(content);rows=Array.isArray(json)?json:Array.isArray(json.items)?json.items:Array.isArray(json.pages)?json.pages.flatMap((p,i)=>p.items.map(x=>({...x,page:i+1}))):null}if(!rows)throw Error('Unsupported file format');let result=importRows(rows);await save();res.json(result)}catch(e){res.status(400).json({error:e.message})}});
-app.patch('/api/items/:id',async(req,res)=>{let x=state.items.find(x=>x.id===req.params.id);if(!x)return res.status(404).json({error:'Not found'});if(typeof req.body.followed==='boolean')x.followed=req.body.followed;if(typeof req.body.notes==='string')x.notes=req.body.notes.slice(0,2000);if(typeof req.body.translation==='string'){x.translation=req.body.translation.slice(0,400);x.translationEdited=true;}if(typeof req.body.trashed==='boolean')x.trashed=req.body.trashed;await save();res.json(x)});
+app.patch('/api/items/:id',async(req,res)=>{let x=state.items.find(x=>x.id===req.params.id);if(!x)return res.status(404).json({error:'Not found'});if(typeof req.body.followed==='boolean')x.followed=req.body.followed;if(typeof req.body.notes==='string')x.notes=req.body.notes.slice(0,2000);if(typeof req.body.translation==='string'){x.translation=req.body.translation.slice(0,400);x.translationEdited=true;}if(typeof req.body.trashed==='boolean'){x.trashed=req.body.trashed;rebuildProfiles();}await save();res.json(x)});
 app.patch('/api/items/:id/suggestions/:sid',async(req,res)=>{let x=state.items.find(x=>x.id===req.params.id),s=x?.suggestions.find(s=>s.id===req.params.sid);if(!s)return res.status(404).json({error:'Not found'});if(typeof req.body.followed==='boolean'){for(const item of state.items)for(const idea of item.suggestions||[])if(idea.query===s.query)idea.followed=req.body.followed;}if(typeof req.body.translation==='string'){s.translation=req.body.translation.slice(0,400);s.translationEdited=true;}await save();res.json(s)});
 app.post('/api/bulk',async(req,res)=>{let ids=new Set(req.body.ids||[]),followed=!!req.body.followed;let count=0;for(let x of state.items)if(ids.has(x.id)){x.followed=followed;count++}await save();res.json({updated:count})});
+// v9: Editable product identities and grouped search profiles.
+app.get('/api/search-profiles',(req,res)=>res.json({profiles:state.profiles||[]}));
+app.patch('/api/search-profiles/:id',async(req,res)=>{
+ const p=state.profiles.find(p=>p.id===req.params.id);if(!p)return res.status(404).json({error:'Profile not found'});
+ if(typeof req.body.followed==='boolean')p.followed=req.body.followed;
+ if(typeof req.body.name==='string'){let name=ic(req.body.name).slice(0,100);if(!name)return res.status(400).json({error:'Profile name required'});p.name=name;p.manualName=true}
+ if(typeof req.body.query==='string'){let query=ic(req.body.query).slice(0,90);if(query.length<3)return res.status(400).json({error:'Search must be at least 3 characters'});p.query=query;p.manualQuery=true}
+ await save();res.json(p);
+});
+app.patch('/api/items/:id/identity',async(req,res)=>{
+ const x=state.items.find(x=>x.id===req.params.id);if(!x)return res.status(404).json({error:'Item not found'});
+ const query=ic(req.body.query).slice(0,90);if(query.length<3)return res.status(400).json({error:'Enter a meaningful product or publication name'});
+ const old=x.identity||{};
+ const manual={query,english:typeof req.body.english==='string'?req.body.english.slice(0,160):(old.english||''),
+  publisher:typeof req.body.publisher==='string'?req.body.publisher.slice(0,100):(old.publisher||''),
+  type:['book','magazine','pamphlet','film','game','music','merchandise','other'].includes(req.body.type)?req.body.type:(old.type||'other'),
+  alternate:old.alternate||'',
+  // Apply corrections to similarly identified items via their existing profile if explicitly requested.
+  profileKey:req.body.groupWithSimilar===true?(old.profileKey||old.query):null};
+ const oldProfile=x.profileId;
+ const affected=req.body.groupWithSimilar===true?state.items.filter(item=>item.profileId&&item.profileId===oldProfile):[x];
+ for(const item of affected){item.identity=identify(item.title,{...manual,profileKey:manual.profileKey||null});item.profileId=profileId(item.identity);if(!item.translationEdited&&manual.english)item.translation=manual.english;refreshSuggestions(item)}
+ if(affected.length>1){const oldProfileRow=state.profiles.find(p=>p.id===oldProfile);if(oldProfileRow){if(!oldProfileRow.manualQuery)oldProfileRow.query=query;if(!oldProfileRow.manualName)oldProfileRow.name=query}}
+ rebuildProfiles();await save();res.json({item:x,updated:affected.length});
+});
+// Optional bibliographic lookup: only user-requested, only valid ISBNs to OpenBD.
+app.post('/api/items/:id/verify-isbn',async(req,res)=>{
+ const x=state.items.find(x=>x.id===req.params.id);if(!x)return res.status(404).json({error:'Item not found'});
+ const isbn=x.identity?.isbn;if(!isbn)return res.status(400).json({error:'No valid ISBN detected in this listing'});
+ try{const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),8500);let r;
+  try{r=await fetch('https://api.openbd.jp/v1/get?isbn='+encodeURIComponent(intelligence.toISBN13(isbn)||isbn),{signal:ctrl.signal,headers:{Accept:'application/json'}})}finally{clearTimeout(timer)}
+  if(!r.ok)throw Error('Catalogue HTTP '+r.status);
+  const z=(await r.json())?.[0]?.summary;
+  if(!z?.title)return res.status(404).json({error:'No OpenBD catalogue record for this ISBN'});
+  const query=ic(z.title).slice(0,95),old=x.identity;
+  x.identity={...old,query,type:'book',publisher:ic(z.publisher)||old.publisher,confidence:.99,status:'verified',source:'catalog',note:'Title verified against OpenBD ISBN catalogue',alternate:old.query!==query?old.query:''};
+  x.profileId=profileId(x.identity);if(!x.translationEdited&&x.identity.english)x.translation=x.identity.english;refreshSuggestions(x);rebuildProfiles();await save();res.json({item:x,catalogue:{title:z.title,publisher:z.publisher,isbn}});
+ }catch(e){res.status(502).json({error:'Catalogue lookup failed: '+e.message})}
+});
+// API-assisted identification is opt-in. Set OPENAI_API_KEY, then click the button in Sourcebook.
+let aiStatus={running:false,checked:0,updated:0,total:0,failed:0,error:null,startedAt:null,finishedAt:null};
+const AI_TYPES=['magazine','book','pamphlet','film','game','music','merchandise','other'];
+async function aiIdentifyBatch(batch){
+ const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw Error('Set OPENAI_API_KEY in Railway Variables to use AI identification');
+ const payload={model:process.env.OPENAI_MODEL||'gpt-4o-mini',temperature:0,response_format:{type:'json_object'},
+  messages:[{role:'system',content:'You identify Japanese vintage printed materials and collectibles from noisy Yahoo/Mercari seller titles. Return JSON object {"items":[{"id":"...","query":"short accurate Japanese work/publication search", "english":"English translation of title", "type":"magazine|book|pamphlet|film|game|music|merchandise|other", "publisher":"publisher only if explicitly known", "year":null, "alternate":"alternate printed short title", "confidence":0.0}]}. Remove shipping terms, seller IDs, condition notes, artist/article listings and ISBNs from query. Preserve the actual edition identity. Different magazine issues can share a magazine title as core. Do not invent facts; if title is unclear use empty query. No extraneous text.'},
+  {role:'user',content:JSON.stringify({items:batch.map(x=>({id:x.id,title:x.title.slice(0,300),knownIsbn:x.identity?.isbn||null,existingGuess:x.identity?.query||''}))})}]};
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),35000);
+ try{const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:ctrl.signal,headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!r.ok)throw Error('AI API HTTP '+r.status+': '+(await r.text()).slice(0,160));
+  const data=await r.json(),parsed=JSON.parse(data.choices?.[0]?.message?.content||'{}');return Array.isArray(parsed.items)?parsed.items:[];
+ }finally{clearTimeout(timer)}
+}
+async function runAI(targets){
+ aiStatus={running:true,checked:0,updated:0,total:targets.length,failed:0,error:null,startedAt:new Date().toISOString(),finishedAt:null};
+ try{for(let n=0;n<targets.length;n+=8){const batch=targets.slice(n,n+8);const results=await aiIdentifyBatch(batch);const byId=new Map(results.map(z=>[z.id,z]));
+  for(const x of batch){aiStatus.checked++;const z=byId.get(x.id);if(!z?.query){aiStatus.failed++;continue}
+   try{const next=intelligence.applyAI(x.identity||identify(x.title),z);x.identity=next;x.profileId=profileId(next);if(!x.translationEdited&&next.english)x.translation=next.english;refreshSuggestions(x);aiStatus.updated++}catch{aiStatus.failed++}}
+  rebuildProfiles();await save();
+ }}catch(e){aiStatus.error=String(e.message)}finally{aiStatus.running=false;aiStatus.finishedAt=new Date().toISOString();await save().catch(console.error)}
+}
+app.post('/api/intelligence/run',async(req,res)=>{
+ if(aiStatus.running)return res.status(409).json({error:'AI identification is already running'});
+ if(!process.env.OPENAI_API_KEY)return res.status(400).json({error:'Add OPENAI_API_KEY to Railway Variables first. AI identification is optional and billable.'});
+ const ids=Array.isArray(req.body?.ids)?new Set(req.body.ids):null;
+ const limit=Math.max(1,Math.min(40,Number(req.body?.limit)||24));
+ const targets=state.items.filter(x=>!x.trashed&&x.identity?.source!=='manual'&&x.identity?.source!=='catalog'&&(
+   ids?ids.has(x.id):(x.identity?.status==='review'&&x.identity?.source!=='ai'))).slice(0,limit);
+ if(!targets.length)return res.json({started:false,message:'No eligible items need AI review',...aiStatus});
+ runAI(targets).catch(e=>console.error('AI identification:',e));res.json({started:true,count:targets.length});
+});
+app.get('/api/intelligence/status',(req,res)=>res.json({enabled:!!process.env.OPENAI_API_KEY,...aiStatus,
+ reviewCount:state.items.filter(x=>!x.trashed&&x.identity?.status==='review'&&x.identity?.source!=='ai').length}));
 // Best-effort public search page checker. Some marketplaces block server requests or change markup.
 const markets={
   Yahoo:q=>'https://auctions.yahoo.co.jp/search/search?p='+encodeURIComponent(q),
@@ -125,7 +160,8 @@ async function monitor(){if(checking)return {running:true};checking=true;const s
  try{
   let followed=state.items.filter(x=>!x.trashed).flatMap(x=>(x.suggestions||[]).filter(s=>s.followed).map(s=>s.query));
   followed.push(...state.items.filter(x=>x.followed&&!x.trashed).map(x=>x.suggestions?.[0]?.query||x.title));
-  let queries=[...new Set(followed)].slice(0,8); // bounded to avoid flooding sites
+  followed.unshift(...(state.profiles||[]).filter(p=>p.followed).map(p=>p.query));
+  let queries=[...new Set(followed.filter(Boolean))].slice(0,8); // bounded to avoid flooding sites
   const known=new Map(state.listings.map(x=>[x.id,x]));let updated=0,detailChecks=0;
   for(let query of queries)for(let market of Object.keys(markets)){
    attempted++;try{let results=await checkOne(market,query);for(let x of results){let key=id(x.url),old=known.get(key);if(old){for(const field of ['title','image','priceYen'])if((!old[field]||/^((Mercari|Yahoo) listing )/.test(old[field]))&&x[field]){old[field]=x[field];updated++}old.seenAt=started}else{let row={...x,id:key,query,firstSeen:started,seenAt:started};state.listings.unshift(row);known.set(key,row);found++}}state.checks.unshift({at:started,market,query,status:'ok',count:results.length,note:results.length?'Public listings parsed':'No listing cards extracted; site may require JavaScript or block requests'});
@@ -180,8 +216,8 @@ app.post('/api/monitor/translate',async(req,res)=>{
 app.post('/api/monitor/run',async(req,res)=>{if(checking)return res.status(409).json({error:'Check already running'});if(Date.now()-lastRun<60000)return res.status(429).json({error:'Please wait at least one minute between checks'});try{res.json(await monitor())}catch(e){res.status(500).json({error:e.message})}});
 setInterval(()=>{if(process.env.MONITOR_ENABLED==='true')monitor().catch(e=>console.error('Monitor:',e))},60*60*1000).unref();
 
-app.post('/api/items/trash',async(req,res)=>{let ids=new Set(Array.isArray(req.body.ids)?req.body.ids:[]),trash=req.body.trashed!==false,count=0;for(const x of state.items)if(ids.has(x.id)){x.trashed=trash;if(trash){x.followed=false;for(const s of x.suggestions||[])s.followed=false}count++}await save();res.json({updated:count})});
-app.delete('/api/items/permanent',async(req,res)=>{let ids=new Set(Array.isArray(req.body.ids)?req.body.ids:[]);let before=state.items.length;state.items=state.items.filter(x=>!(x.trashed&&ids.has(x.id)));await save();res.json({deleted:before-state.items.length,note:'Items in original imports will reappear if imported again.'})});
+app.post('/api/items/trash',async(req,res)=>{let ids=new Set(Array.isArray(req.body.ids)?req.body.ids:[]),trash=req.body.trashed!==false,count=0;for(const x of state.items)if(ids.has(x.id)){x.trashed=trash;if(trash){x.followed=false;for(const s of x.suggestions||[])s.followed=false}count++}rebuildProfiles();await save();res.json({updated:count})});
+app.delete('/api/items/permanent',async(req,res)=>{let ids=new Set(Array.isArray(req.body.ids)?req.body.ids:[]);let before=state.items.length;state.items=state.items.filter(x=>!(x.trashed&&ids.has(x.id)));rebuildProfiles();await save();res.json({deleted:before-state.items.length,note:'Items in original imports will reappear if imported again.'})});
 app.patch('/api/items/:id/image',async(req,res)=>{let x=state.items.find(x=>x.id===req.params.id);if(!x)return res.status(404).json({error:'Not found'});let image=req.body.image;if(image!==null&&(typeof image!=='string'||!(image.startsWith('https://')||image.startsWith('http://')||/^data:image\/(jpeg|png|webp);base64,/.test(image))||image.length>1200000))return res.status(400).json({error:'Use an image URL or JPG/PNG/WebP under approximately 850 KB'});x.thumbnail=image;await save();res.json({thumbnail:x.thumbnail})});
 // Optional DeepL translation. No request is made without a configured key and explicit user action.
 app.post('/api/translations/run',async(req,res)=>{

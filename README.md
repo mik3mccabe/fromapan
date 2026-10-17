@@ -1,31 +1,24 @@
-# Sourcebook v2 — Railway deployment
+# Sourcebook v5
 
-Replace the files in your existing GitHub repository with **the contents of this folder**, not the parent folder. Railway will redeploy automatically.
+Japanese sourcing library for Railway. Replaces overly-specific seller listing searches with a **core publication/product term**, and optional year/month refinements. Search Ideas are consolidated across purchases.
 
-## Railway variables
+## Upgrade
 
-- `DATABASE_URL`: reference your PostgreSQL database (`${{Postgres.DATABASE_URL}}`). Keep the same database from v1 to preserve follows/imports.
-- `APP_PASSWORD`: **strongly recommended**. Protects the entire app with HTTP Basic authentication. Username can be anything; password is this value.
-- `MONITOR_ENABLED=true`: enables an hourly best-effort check for followed searches. Omit/false for manual-only checks.
+Upload the **contents** of `fromjapan-sourcing-app/` to the root of your GitHub repository, replacing matching files. Leave Railway's Root Directory empty. Keep `DATABASE_URL`, `APP_PASSWORD`, and `MONITOR_ENABLED` as before. The app re-generates suggestions on startup; manually edited item translations are preserved. Back up first using the **Backup** button.
 
-## Monitoring limitations
+## Translations
 
-The app attempts public HTML searches on Yahoo Auctions and Mercari. Neither site is guaranteed to permit automated server-side requests, and both can change their markup or block Railway IPs. The Diagnostics panel displays errors and zero-results. A check can find only URL references, not reliable price/image/title details. It checks up to 8 distinct followed queries per run, across 2 marketplaces, to limit load. No notifications, background queue, authenticated scraping, or guaranteed monitoring is provided. Additional sources (Mandarake, Suruga-ya, Rakuten) remain manual search links.
+The built-in title glossary only covers recognized publications and categories. It intentionally leaves unknown titles untranslated rather than producing misleading partial translations. To translate other titles, configure a DeepL API key in Railway Variables:
 
-## Buying through FromJapan
+- `DEEPL_API_KEY`: your DeepL API key
+- `DEEPL_API_URL`: optional, `https://api.deepl.com/v2/translate` for a DeepL Pro key; defaults to the DeepL Free endpoint.
 
-The primary button opens FromJapan. The listing panel offers **Copy URL** for the original marketplace listing to paste into FromJapan's URL-order flow. There is no verified one-click deep link to FromJapan for arbitrary listings, so the app deliberately does not invent one.
+Then click **Translate missing titles** in Sourcebook. Each click translates up to 25 missing item titles; API usage may be billable depending on your plan. Manual edits override automatic translation and are retained. This feature requires the user's own DeepL key; it does not use a hidden translation service.
 
-## Data safety
+## Search intelligence
 
-Keep your GitHub repository private and set `APP_PASSWORD` before generating or sharing a public Railway domain. The bundled `data/seed.json` contains purchase titles and links, and should not be placed in a public repository. Your previous database remains intact if you reuse the same PostgreSQL instance.
+Recognizes known publications, strips seller additions and only uses the shortest meaningful publication/product phrase as the **Core** search. Year and month are optional **Refine** and **Exact** suggestions. For unrecognized titles, only short, unambiguous leading phrases are proposed; other titles receive no automatic idea rather than a misleading search. Search Ideas shows each distinct phrase once.
 
-## Version 3 additions
-- Working FromJapan keyword search URLs (using the user-supplied search path).
-- Library / Search Ideas / Trash views; bulk trash, restore and permanent delete. Trashed items are retained across reimports. Permanent deletion does not prevent future reimport.
-- Japanese + English display; editable English glosses. Automatic glosses are rule-based and incomplete, not professional machine translation.
-- Manual thumbnail URL and file upload (small images saved within app state). Image uploads above approximately 850 KB may be rejected. Automated image discovery is not implemented.
-- Existing Postgres data remains in the same app_state row; do not remove the database.
+## Caveats
 
-## v4 Search Intelligence
-Seller-added names, article descriptions and reference codes are excluded from default search suggestions. Recognised publications get broad, balanced and exact Japanese search terms with Gregorian/Showa year variants. On startup, suggestions are refreshed for existing purchases while matching followed search terms and manual translations are retained. Following a shared term synchronises it across items. The monitoring process deduplicates followed query strings. Unknown publication names use a conservative leading-title fallback; review these manually.
+Marketplace monitoring is experimental and may not extract live listings; no guaranteed alerts. Database persists in PostgreSQL. Imported image data is stored in app state. Protect the app with `APP_PASSWORD` and keep your repo private if it contains purchase data.

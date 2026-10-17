@@ -22,3 +22,10 @@ Recognizes known publications, strips seller additions and only uses the shortes
 ## Caveats
 
 Marketplace monitoring is experimental and may not extract live listings; no guaranteed alerts. Database persists in PostgreSQL. Imported image data is stored in app state. Protect the app with `APP_PASSWORD` and keep your repo private if it contains purchase data.
+
+
+## v6 — New Listings view
+
+New Listings has its own navigation tab with compact image cards, marketplace filters, keyword search, original listing links and FromJapan searches. The monitor currently discovers URLs from marketplace HTML and often cannot retrieve actual product titles, images or prices. In those cases the UI explicitly shows unavailable metadata; it does not fabricate thumbnails or translations.
+
+The **Translate listing titles** button uses `DEEPL_API_KEY` (DeepL API Free by default) for real Japanese listing titles when available. It cannot translate URL-only placeholder titles. Marketplace access may be blocked or require site-specific APIs.

@@ -112,6 +112,15 @@ async function monitor(){if(checking)return {running:true};checking=true;const s
  }finally{checking=false}
 }
 app.get('/api/monitor',(req,res)=>res.json({listings:state.listings||[],checks:state.checks||[],running:checking,markets:Object.keys(markets),note:'Best-effort public page checks; results may be incomplete. No alerts or guaranteed coverage.'}));
+// Translate real marketplace titles only. URL-only placeholders cannot be translated.
+app.post('/api/monitor/translate',async(req,res)=>{
+ if(!process.env.DEEPL_API_KEY)return res.status(400).json({error:'Set DEEPL_API_KEY in Railway Variables to translate marketplace titles.'});
+ const limit=Math.max(1,Math.min(25,Number(req.body?.limit)||25));
+ const candidates=state.listings.filter(x=>x.title&&!/^(Mercari|Yahoo) listing /.test(x.title)&&!x.translation).slice(0,limit);
+ let translated=0;
+ for(const x of candidates){try{const body=new URLSearchParams({text:x.title,source_lang:'JA',target_lang:'EN'});let response=await fetch(process.env.DEEPL_API_URL||'https://api-free.deepl.com/v2/translate',{method:'POST',headers:{Authorization:'DeepL-Auth-Key '+process.env.DEEPL_API_KEY,'Content-Type':'application/x-www-form-urlencoded'},body});if(!response.ok)throw Error('DeepL HTTP '+response.status);let json=await response.json();let t=json.translations?.[0]?.text;if(t){x.translation=t;translated++}}catch(e){return res.status(502).json({error:'Translation failed: '+e.message,translated})}}
+ if(translated)await save();res.json({translated,remaining:state.listings.filter(x=>x.title&&!/^(Mercari|Yahoo) listing /.test(x.title)&&!x.translation).length});
+});
 app.post('/api/monitor/run',async(req,res)=>{if(checking)return res.status(409).json({error:'Check already running'});if(Date.now()-lastRun<60000)return res.status(429).json({error:'Please wait at least one minute between checks'});try{res.json(await monitor())}catch(e){res.status(500).json({error:e.message})}});
 setInterval(()=>{if(process.env.MONITOR_ENABLED==='true')monitor().catch(e=>console.error('Monitor:',e))},60*60*1000).unref();
 

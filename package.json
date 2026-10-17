@@ -1,1 +1,1 @@
-{"name":"fromjapan-sourcing-library","version":"3.0.0","private":true,"scripts":{"start":"node server.js"},"engines":{"node":">=20"},"dependencies":{"express":"^4.21.2","pg":"^8.13.1","csv-parse":"^5.6.0"}}
+{"name":"fromjapan-sourcing-library","version":"4.0.0","private":true,"scripts":{"start":"node server.js"},"engines":{"node":">=20"},"dependencies":{"express":"^4.21.2","pg":"^8.13.1","csv-parse":"^5.6.0"}}

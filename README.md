@@ -26,3 +26,6 @@ Keep your GitHub repository private and set `APP_PASSWORD` before generating or 
 - Japanese + English display; editable English glosses. Automatic glosses are rule-based and incomplete, not professional machine translation.
 - Manual thumbnail URL and file upload (small images saved within app state). Image uploads above approximately 850 KB may be rejected. Automated image discovery is not implemented.
 - Existing Postgres data remains in the same app_state row; do not remove the database.
+
+## v4 Search Intelligence
+Seller-added names, article descriptions and reference codes are excluded from default search suggestions. Recognised publications get broad, balanced and exact Japanese search terms with Gregorian/Showa year variants. On startup, suggestions are refreshed for existing purchases while matching followed search terms and manual translations are retained. Following a shared term synchronises it across items. The monitoring process deduplicates followed query strings. Unknown publication names use a conservative leading-title fallback; review these manually.

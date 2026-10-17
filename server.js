@@ -88,29 +88,36 @@ const markets={
   Mercari:q=>'https://jp.mercari.com/search?keyword='+encodeURIComponent(q)
 };
 let checking=false,lastRun=0;
-function decodeEntities(t){return t.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>')}
-function parseListings(html,market){
-  const pattern=market==='Yahoo'?/https?:\\?\/\\?\/(?:page\\?\.)?auctions\\?\.yahoo\\?\.co\\?\.jp\\?\/jp\\?\/auction\\?\/[a-z0-9]+/gi:/https?:\\?\/\\?\/jp\\?\.mercari\\?\.com\\?\/item\\?\/[a-zA-Z0-9]+/gi;
-  const urls=new Set();let m;while((m=pattern.exec(html))&&urls.size<35){let u=m[0].replace(/\\\\/g,'').replace(/\\\//g,'/');try{let parsed=new URL(u);urls.add(parsed.origin+parsed.pathname)}catch{}}
-  return [...urls].map(url=>({url,market,title:market+' listing '+url.split('/').pop(),image:null,priceYen:null}));
+const {extract}=require('./marketplace-extract');
+async function fetchPublicPage(url,timeout=12000){
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeout);
+ try{const r=await fetch(url,{signal:ctrl.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0 (compatible; Sourcebook/7.0; public-page-reader)','Accept':'text/html,application/xhtml+xml'}});if(!r.ok)throw Error('HTTP '+r.status);if(!/^text\/html|application\/xhtml/i.test(r.headers.get('content-type')||''))throw Error('Not an HTML page');const body=await r.text();return body.slice(0,2500000)}finally{clearTimeout(timer)}
 }
-async function checkOne(market,query){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-  try{let r=await fetch(markets[market](query),{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 (compatible; Sourcebook/2.0)','Accept':'text/html'}});if(!r.ok)throw Error('HTTP '+r.status);let html=await r.text();if(html.length>3000000)html=html.slice(0,3000000);return parseListings(html,market)}finally{clearTimeout(timer)}
+async function checkOne(market,query){const url=markets[market](query);const html=await fetchPublicPage(url);return extract(html,market,url)}
+async function enrichListing(x){
+ if(x.image&&x.title&&x.priceYen!=null)return x;
+ // Only fetch canonical, whitelisted marketplace product URLs; never user-supplied arbitrary hosts.
+ const {canonical,extract}=require('./marketplace-extract');if(!canonical(x.url,x.market,x.url))return x;
+ try{const html=await fetchPublicPage(x.url,9000);const detail=extract(html,x.market,x.url).find(y=>y.url===x.url);if(detail){for(const field of ['title','image','priceYen'])if((x[field]==null||/^((Mercari|Yahoo) listing )/.test(x[field]))&&detail[field]!=null)x[field]=detail[field]}}catch(e){x.metadataError=String(e.message).slice(0,100)}return x;
 }
 async function monitor(){if(checking)return {running:true};checking=true;const started=new Date().toISOString();let found=0,errors=0,attempted=0;
  try{
   let followed=state.items.filter(x=>!x.trashed).flatMap(x=>(x.suggestions||[]).filter(s=>s.followed).map(s=>s.query));
   followed.push(...state.items.filter(x=>x.followed&&!x.trashed).map(x=>x.suggestions?.[0]?.query||x.title));
   let queries=[...new Set(followed)].slice(0,8); // bounded to avoid flooding sites
-  const known=new Set(state.listings.map(x=>x.id));
+  const known=new Map(state.listings.map(x=>[x.id,x]));let updated=0,detailChecks=0;
   for(let query of queries)for(let market of Object.keys(markets)){
-   attempted++;try{let results=await checkOne(market,query);for(let x of results){let key=id(x.url);if(!known.has(key)){state.listings.unshift({...x,id:key,query,firstSeen:started,seenAt:started});known.add(key);found++}}state.checks.unshift({at:started,market,query,status:'ok',count:results.length,note:results.length?'Links discovered':'No listing links extracted; may be blocked or page format changed'});
+   attempted++;try{let results=await checkOne(market,query);for(let x of results){let key=id(x.url),old=known.get(key);if(old){for(const field of ['title','image','priceYen'])if((!old[field]||/^((Mercari|Yahoo) listing )/.test(old[field]))&&x[field]){old[field]=x[field];updated++}old.seenAt=started}else{let row={...x,id:key,query,firstSeen:started,seenAt:started};state.listings.unshift(row);known.set(key,row);found++}}state.checks.unshift({at:started,market,query,status:'ok',count:results.length,note:results.length?'Public listings parsed':'No listing cards extracted; site may require JavaScript or block requests'});
    }catch(e){errors++;state.checks.unshift({at:started,market,query,status:'error',count:0,note:String(e.message).slice(0,180)})}
   }
-  state.listings=state.listings.slice(0,1500);state.checks=state.checks.slice(0,100);lastRun=Date.now();await save();return {found,errors,attempted,queries:queries.length};
+  // Bounded enrichment: only 12 product pages per run to reduce load and avoid flooding marketplaces.
+  for(const x of state.listings.filter(x=>!x.image||!x.title||x.priceYen==null).slice(0,12)){
+   detailChecks++;const before=JSON.stringify([x.title,x.image,x.priceYen]);await enrichListing(x);if(before!==JSON.stringify([x.title,x.image,x.priceYen]))updated++;
+  }
+  state.listings=state.listings.slice(0,1500);state.checks=state.checks.slice(0,100);lastRun=Date.now();await save();return {found,updated,detailChecks,errors,attempted,queries:queries.length};
  }finally{checking=false}
 }
+app.post('/api/monitor/backfill',async(req,res)=>{if(checking)return res.status(409).json({error:'Monitor is busy'});checking=true;let checked=0,updated=0;try{const limit=Math.max(1,Math.min(20,Number(req.body?.limit)||12));const targets=state.listings.filter(x=>!x.image||!x.title||x.priceYen==null).slice(0,limit);for(const x of targets){const before=JSON.stringify([x.title,x.image,x.priceYen]);await enrichListing(x);checked++;if(before!==JSON.stringify([x.title,x.image,x.priceYen]))updated++}await save();res.json({checked,updated,note:'Unavailable metadata may be blocked by marketplace sites.'})}catch(e){res.status(500).json({error:e.message})}finally{checking=false}});
 app.get('/api/monitor',(req,res)=>res.json({listings:state.listings||[],checks:state.checks||[],running:checking,markets:Object.keys(markets),note:'Best-effort public page checks; results may be incomplete. No alerts or guaranteed coverage.'}));
 // Translate real marketplace titles only. URL-only placeholders cannot be translated.
 app.post('/api/monitor/translate',async(req,res)=>{

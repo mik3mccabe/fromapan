@@ -29,3 +29,9 @@ Marketplace monitoring is experimental and may not extract live listings; no gua
 New Listings has its own navigation tab with compact image cards, marketplace filters, keyword search, original listing links and FromJapan searches. The monitor currently discovers URLs from marketplace HTML and often cannot retrieve actual product titles, images or prices. In those cases the UI explicitly shows unavailable metadata; it does not fabricate thumbnails or translations.
 
 The **Translate listing titles** button uses `DEEPL_API_KEY` (DeepL API Free by default) for real Japanese listing titles when available. It cannot translate URL-only placeholder titles. Marketplace access may be blocked or require site-specific APIs.
+
+## v7: marketplace metadata recovery
+
+New listings use public search-result cards and embedded structured data to retrieve original Japanese titles, thumbnail URLs and yen prices where available. Existing URL-only discoveries can be retried using **Recover missing details** (up to 12 per click). The hourly monitor also retries a bounded set of incomplete listings. Translation still requires `DEEPL_API_KEY` and clicking Translate. Marketplaces may block automated access or change their markup; empty fields remain empty rather than fabricated. No proxy rotation, CAPTCHA bypass, or login scraping is used.
+
+Tests: `npm test`.

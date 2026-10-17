@@ -36,3 +36,5 @@ $('#runMonitor').onclick=async()=>{let b=$('#runMonitor');b.disabled=true;b.text
 $('#monitorListings').addEventListener('click',async e=>{let b=e.target.closest('.copy-listing');if(b){await navigator.clipboard.writeText(b.dataset.url);toast('Original URL copied; paste it into FromJapan')}});loadMonitor();
 
 $('#translateMissing').onclick=async()=>{let b=$('#translateMissing');b.disabled=true;try{let r=await api('/api/translations/run',{method:'POST',body:JSON.stringify({limit:25})});toast(`Translated ${r.translated} titles. ${r.remaining} still missing.`);await load()}catch(e){toast(e.message)}finally{b.disabled=false}};
+
+$('#backfillListings').onclick=async()=>{const b=$('#backfillListings');b.disabled=true;b.textContent='Recovering…';try{const r=await api('/api/monitor/backfill',{method:'POST',body:JSON.stringify({limit:12})});toast(`Checked ${r.checked} listings; updated ${r.updated}.`);await loadMonitor()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent='↻ Recover missing details'}};

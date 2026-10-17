@@ -37,4 +37,14 @@ $('#monitorListings').addEventListener('click',async e=>{let b=e.target.closest(
 
 $('#translateMissing').onclick=async()=>{let b=$('#translateMissing');b.disabled=true;try{let r=await api('/api/translations/run',{method:'POST',body:JSON.stringify({limit:25})});toast(`Translated ${r.translated} titles. ${r.remaining} still missing.`);await load()}catch(e){toast(e.message)}finally{b.disabled=false}};
 
-$('#backfillListings').onclick=async()=>{const b=$('#backfillListings');b.disabled=true;b.textContent='Recovering…';try{const r=await api('/api/monitor/backfill',{method:'POST',body:JSON.stringify({limit:12})});toast(`Checked ${r.checked} listings; updated ${r.updated}.`);await loadMonitor()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent='↻ Recover missing details'}};
+let recoveryPoll=null;
+async function showRecovery(){
+ try{const r=await api('/api/monitor/backfill/status');const b=$('#backfillListings');
+ b.disabled=!!r.running;b.textContent=r.running?`Recovering ${r.checked}/${r.total}…`:'↻ Recover missing details';
+ const label=$('#recoveryProgress');if(label)label.textContent=r.running?`Recovering images in background: ${r.checked}/${r.total} checked, ${r.updated} improved`:(r.finishedAt?`Last recovery: ${r.checked} checked, ${r.updated} improved. Unavailable images may be blocked.`:'');
+ if(r.running){if(!recoveryPoll)recoveryPoll=setInterval(async()=>{await showRecovery();if(section==='listings')await loadMonitor()},5000)}
+ else if(recoveryPoll){clearInterval(recoveryPoll);recoveryPoll=null;if(section==='listings')await loadMonitor()}
+ }catch(e){console.warn('Recovery status:',e)}
+}
+$('#backfillListings').onclick=async()=>{try{await api('/api/monitor/backfill',{method:'POST',body:'{}'});await showRecovery()}catch(e){toast(e.message)}};
+showRecovery();

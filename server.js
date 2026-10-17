@@ -48,13 +48,33 @@ function identify(title){
  return {subject,english,year,month,recognized:!!known};
 }
 function suggestions(title){
- const info=identify(title);if(!info.subject)return [];
- const {subject,english,year,month}=info;
- const out=[];const add=(query,kind,translation)=>{if(!out.some(x=>x.query===query))out.push({id:id(query),query,kind,translation,followed:false})};
- add(subject,'Core',english||'');
- if(year){add(`${subject} ${year}`,'Refine',english?`${english} (${year})`:'');
-  if(month)add(`${subject} ${year} ${month}月`,'Exact',english?`${english} (${year}, month ${month})`:'');
+ const info=identify(title), raw=clean(title).normalize('NFKC');
+ let subject=info.subject, english=info.english;
+ // Preserve useful publication and series names even in long seller-written titles.
+ if(!subject){
+  const patterns=[/\b[A-Z][A-Z0-9 ]{2,25}\s+MOOK\b/i,/[^\s「」『』【】()（）]{2,20}図鑑\s*\d{0,3}/,/[^\s「」『』【】()（）]{2,18}(?:ムック|雑誌|画報|特集号)/];
+  for(const pattern of patterns){const m=raw.match(pattern);if(m){subject=m[0].trim();break}}
  }
+ if(!subject){
+  let t=raw.replace(/【([^】]+)】/g,'$1 ').replace(SELLER_NOISE,' ')
+   .replace(/(?:19|20)\d{2}.*$/,' ').replace(/(?:昭和|昭)\s*\d{1,2}.*$/,' ')
+   .replace(/(?:No\.?|vol\.?|issue)\s*\d+.*$/i,' ').replace(/\b\d{5,}\b/g,' ')
+   .replace(/[「」『』【】\[\]()（）<>]/g,' ').replace(/\s+/g,' ').trim();
+  // Take a coherent first phrase rather than dropping the entire item.
+  const part=t.split(/[|｜■◆●★☆※、。:：／/]/)[0].trim();
+  const m=part.match(/^.{2,28}?(?=\s{2,}|$)/);
+  subject=(m?.[0]||part).slice(0,28).trim();
+  if(!subject||/^\d+$/.test(subject))subject=raw.slice(0,28).trim();
+ }
+ const out=[];const add=(query,kind,translation)=>{query=clean(query);if(query&&!out.some(x=>x.query===query))out.push({id:id(query),query,kind,translation,followed:false})};
+ add(subject,'Core',english||'');
+ // For descriptive generic terms, retain a specific phrase as a second option.
+ if(['パンフレット','写真集'].includes(subject)){
+  const specific=raw.replace(SELLER_NOISE,' ').replace(/\s+/g,' ').trim().slice(0,35);
+  if(specific!==subject)add(specific,'Specific','');
+ }
+ if(info.year){add(`${subject} ${info.year}`,'Refine',english?`${english} (${info.year})`:'');
+  if(info.month)add(`${subject} ${info.year} ${info.month}月`,'Exact',english?`${english} (${info.year}, month ${info.month})`:'');}
  return out;
 }
 function refreshSuggestions(x){
@@ -62,6 +82,7 @@ function refreshSuggestions(x){
  const followed=new Set(previous.filter(s=>s.followed).map(s=>s.query));
  const translations=new Map(previous.filter(s=>s.translationEdited).map(s=>[s.query,s.translation]));
  x.suggestions=suggestions(x.title).map(s=>({...s,followed:followed.has(s.query),translation:translations.get(s.query)??s.translation??'',translationEdited:translations.has(s.query)}));
+ for(const old of previous.filter(v=>v.followed&&!x.suggestions.some(n=>n.query===v.query)))x.suggestions.push(old);
  return x;
 }
 function normalize(r){let title=clean(r.title),url=clean(r.url);if(!title||badTitle(title)||!url)return null;let details=clean(r.details),m=details.match(/Auction ID \/ Order No\s+([^\s]+)/),charge=details.match(/Charge 1\s+([\d,]+)\s+yen/);let key=m?m[1]:url.split('?')[0]+'|'+title;return {id:id(key),title,url,thumbnail:validImage(r.thumbnail)?r.thumbnail:null,details,auctionId:m?m[1]:null,priceYen:charge?Number(charge[1].replace(/,/g,'')):null,marketplace:marketplace(url),page:r.page||null,followed:false,notes:'',suggestions:suggestions(title)}}
@@ -117,7 +138,35 @@ async function monitor(){if(checking)return {running:true};checking=true;const s
   state.listings=state.listings.slice(0,1500);state.checks=state.checks.slice(0,100);lastRun=Date.now();await save();return {found,updated,detailChecks,errors,attempted,queries:queries.length};
  }finally{checking=false}
 }
-app.post('/api/monitor/backfill',async(req,res)=>{if(checking)return res.status(409).json({error:'Monitor is busy'});checking=true;let checked=0,updated=0;try{const limit=Math.max(1,Math.min(20,Number(req.body?.limit)||12));const targets=state.listings.filter(x=>!x.image||!x.title||x.priceYen==null).slice(0,limit);for(const x of targets){const before=JSON.stringify([x.title,x.image,x.priceYen]);await enrichListing(x);checked++;if(before!==JSON.stringify([x.title,x.image,x.priceYen]))updated++}await save();res.json({checked,updated,note:'Unavailable metadata may be blocked by marketplace sites.'})}catch(e){res.status(500).json({error:e.message})}finally{checking=false}});
+// A single background recovery job survives browser navigation. Each listing is attempted
+// once per job, with capped retries and pacing to avoid repeatedly hammering blocked sites.
+let recovery={running:false,checked:0,updated:0,total:0,failed:0,startedAt:null,finishedAt:null};
+const recoverySleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function startRecovery(){
+ if(recovery.running||checking)return false;
+ const targets=state.listings.filter(x=>(!x.image||!x.title||/^(Mercari|Yahoo) listing /.test(x.title))&&
+  (!x.recoveryLastAttempt||Date.now()-Date.parse(x.recoveryLastAttempt)>6*60*60*1000));
+ recovery={running:true,checked:0,updated:0,total:targets.length,failed:0,startedAt:new Date().toISOString(),finishedAt:null};
+ (async()=>{try{for(const x of targets){
+  const before=JSON.stringify([x.title,x.image,x.priceYen]);
+  try{await enrichListing(x)}catch(e){x.metadataError=String(e.message).slice(0,120)}
+  x.recoveryLastAttempt=new Date().toISOString();recovery.checked++;
+  if(before!==JSON.stringify([x.title,x.image,x.priceYen]))recovery.updated++;
+  else recovery.failed++;
+  // Persist progress periodically; the browser is not required to remain open.
+  if(recovery.checked%5===0)await save();
+  await recoverySleep(1100);
+ }}catch(e){console.error('Recovery:',e)}finally{recovery.running=false;recovery.finishedAt=new Date().toISOString();await save().catch(console.error)}})();
+ return true;
+}
+app.post('/api/monitor/backfill',async(req,res)=>{
+ if(recovery.running)return res.json({started:false,...recovery});
+ if(checking)return res.status(409).json({error:'Marketplace check in progress; try again shortly'});
+ await startRecovery();res.json({started:true,...recovery});
+});
+app.get('/api/monitor/backfill/status',(req,res)=>res.json(recovery));
+// Auto-recover incomplete discoveries, including after a server restart.
+setInterval(()=>{if(!recovery.running&&!checking&&state.listings.some(x=>!x.image&&(!x.recoveryLastAttempt||Date.now()-Date.parse(x.recoveryLastAttempt)>6*60*60*1000)))startRecovery()},10*60*1000).unref();
 app.get('/api/monitor',(req,res)=>res.json({listings:state.listings||[],checks:state.checks||[],running:checking,markets:Object.keys(markets),note:'Best-effort public page checks; results may be incomplete. No alerts or guaranteed coverage.'}));
 // Translate real marketplace titles only. URL-only placeholders cannot be translated.
 app.post('/api/monitor/translate',async(req,res)=>{
@@ -155,4 +204,4 @@ app.get('/api/search-ideas',(req,res)=>{const ideas=new Map();for(const x of sta
 app.get('/api/fromjapan-search',(req,res)=>res.json({url:fj(clean(req.query.q))}));
 app.get('/api/export',(req,res)=>{res.setHeader('Content-Disposition','attachment; filename="sourcing-library.json"');res.json(state)});
 app.get('/api/health',(req,res)=>res.json({ok:true,items:state.items.length,database:!!pool}));
-init().then(()=>app.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('Listening'))).catch(e=>{console.error(e);process.exit(1)});
+init().then(()=>app.listen(process.env.PORT||3000,'0.0.0.0',()=>{console.log('Listening');setTimeout(()=>startRecovery(),12000).unref()})).catch(e=>{console.error(e);process.exit(1)});

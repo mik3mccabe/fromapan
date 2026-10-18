@@ -56,3 +56,21 @@ node --test test/intelligence.test.js test/curation.test.js test/curation-api.te
 ```
 
 **Development validation:** The 21 tests above passed in the build environment, and JavaScript syntax checks passed. `npm install` was unavailable due to DNS/network restrictions, so the Cheerio-backed marketplace extraction tests and a live Railway/browser deployment could not be verified here. Please test on your Railway deployment before relying on the recommendations.
+
+
+## v12: Specific search options and publication identity
+
+Search Profiles now identify known books by full titles and separate numbered volumes,
+while showing several selectable searches (main Japanese title, subtitle where
+available, English alternate, and exact ISBN where present). A broad subject such
+as `スヌーピー` is not a valid recommended publication search.
+
+Old seller titles remain available under Original descriptions and the first one
+is visible on the card for context. Low-confidence products are not merged into
+shared search profiles until their identity is corrected. A two-book lot is
+kept separate from Volume 2. Your existing followed searches and purchase records
+are retained; broad legacy searches that no longer match a recognised publication
+may appear as an orphaned profile for manual review or unfollowing.
+
+**Update:** Back up Sourcebook, replace your GitHub app files, and commit. Railway
+redeploys automatically. Do not delete your PostgreSQL database or variables.

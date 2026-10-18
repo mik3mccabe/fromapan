@@ -59,6 +59,7 @@ function canonicalKey(item){
  if(item.duplicateOverride?.startsWith('merge:'))return {key:item.duplicateOverride,reason:'Manually grouped',strength:'manual'};
  if(item.duplicateOverride==='separate')return {key:'individual:'+item.id,reason:'Manually separated',strength:'manual'};
  const p=item.identity||identify(item.title),type=p.type||'unknown';
+ if(variantSignature(item.title).includes('multi-item'))return {key:'individual:'+item.id,reason:'Multi-item lot; review contents separately',strength:'review'};
  if(p.isbn&&/^(?:97[89]\d{10}|\d{9}[\dX])$/.test(isbn(p.isbn)))return {key:'isbn:'+isbn(p.isbn),reason:'Identical ISBN',strength:'high'};
  if(!p.query||Number(p.confidence)<.86||!['book','magazine','pamphlet'].includes(type))return {key:'individual:'+item.id,reason:'Identity requires review',strength:'review'};
  const title=norm(p.query),ed=edition(item.title),vol=issueSignature(item),variant=variantSignature(item.title);
@@ -75,8 +76,9 @@ function canonicalKey(item){
 }
 function groups(items){
  const map=new Map();for(const x of items.filter(x=>!x.trashed)){
-  const k=canonicalKey(x);if(!map.has(k.key))map.set(k.key,{id:hash(k.key),key:k.key,reason:k.reason,strength:k.strength,items:[],title:x.identity?.query||titleCandidate(x.title)||x.title,type:x.identity?.type||'unknown',thumbnail:null,totalYen:0});
+  const k=canonicalKey(x);if(!map.has(k.key))map.set(k.key,{id:hash(k.key),key:k.key,reason:k.reason,strength:k.strength,items:[],title:x.identity?.displayTitle||x.identity?.query||titleCandidate(x.title)||x.title,type:x.identity?.type||'unknown',thumbnail:null,totalYen:0});
   const g=map.get(k.key);g.items.push(x);g.thumbnail ||= x.thumbnail||null;g.totalYen+=Number(x.priceYen)||0;
+ if(x.identity?.displayTitle&&x.identity.displayTitle.length>g.title.length&&k.strength!=='manual')g.title=x.identity.displayTitle;
  }
  return [...map.values()].map(g=>({id:g.id,key:g.key,title:g.title,type:g.type,thumbnail:g.thumbnail,count:g.items.length,itemIds:g.items.map(x=>x.id),reason:g.reason,strength:g.strength,totalYen:g.totalYen, purchases:g.items.map(x=>({id:x.id,title:x.title,url:x.url,thumbnail:x.thumbnail,auctionId:x.auctionId,priceYen:x.priceYen,marketplace:x.marketplace}))})).sort((a,b)=>b.count-a.count||a.title.localeCompare(b.title,'ja'));
 }

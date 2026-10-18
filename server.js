@@ -36,25 +36,61 @@ function enrich(x){
  refreshSuggestions(x);return x;
 }
 function rebuildProfiles(){
+ // Profiles represent identified publications. Uncertain seller titles are one-per-purchase
+ // until reviewed; subject keywords must never silently collapse different works.
  const previous=new Map((state.profiles||[]).map(p=>[p.id,p]));
  const mapped=new Map();
+ const options=(p,info)=>{
+  for(const option of searches(info)){
+   // Do not add vague subjects to the monitoring menu.
+   const query=ic(option.query);
+   if(query&&!p.options.some(o=>o.query===query))p.options.push({query,kind:option.kind,reason:option.reason,confidence:option.confidence});
+  }
+ };
  for(const item of state.items.filter(x=>!x.trashed)){
-  const info=item.identity||identify(item.title);if(!info.query)continue;
-  const key=item.profileId||profileId(info);if(!key)continue;
+  const info=item.identity||identify(item.title);
+  // Never promote a low-confidence seller-title fragment into a shared product profile.
+  const uncertain=info.status==='review'||Number(info.confidence)<.78;
+  const key=uncertain?'needs-review:'+item.id:(profileId(info)||'needs-review:'+item.id);
+  item.profileId=key;
   if(!mapped.has(key)){
    const old=previous.get(key)||{};
-   mapped.set(key,{id:key,name:old.name||info.query,query:old.query||info.query,type:info.type,
+   const recognisedName=info.type==='magazine'?info.query:(info.displayTitle||info.query||intelligence.titleCandidate(item.title)||item.title);
+   mapped.set(key,{id:key,name:old.manualName?old.name:recognisedName,
+    query:old.manualQuery?old.query:(info.query||''),type:uncertain?'needs review':info.type,
     source:info.source,followed:!!old.followed,manualName:!!old.manualName,manualQuery:!!old.manualQuery,
-    itemIds:[],examples:[],confidence:info.confidence,yearMin:null,yearMax:null});
+    itemIds:[],examples:[],purchaseExamples:[],options:[],needsReview:uncertain,
+    confidence:info.confidence,description:info.subtitle||'',publisher:info.publisher||'',english:info.english||'',
+    yearMin:null,yearMax:null});
   }
   const p=mapped.get(key);p.itemIds.push(item.id);
+  // Later purchases may reveal the actual subtitle missing in the first seller title.
+  if(!p.manualName&&info.displayTitle&&info.displayTitle.length>String(p.name||'').length&&(!p.needsReview))p.name=info.displayTitle;
+  if(!p.description&&info.subtitle)p.description=info.subtitle;
+  if(!p.publisher&&info.publisher)p.publisher=info.publisher;
+  if(!p.english&&info.english)p.english=info.english;
   if(/^https?:\/\//.test(item.thumbnail||'')&&p.examples.length<4)p.examples.push(item.thumbnail);
+  if(p.purchaseExamples.length<8)p.purchaseExamples.push({id:item.id,title:item.title,url:item.url,thumbnail:item.thumbnail,priceYen:item.priceYen,auctionId:item.auctionId});
   if(info.year){p.yearMin=Math.min(p.yearMin??info.year,info.year);p.yearMax=Math.max(p.yearMax??info.year,info.year)}
   p.confidence=Math.min(p.confidence,info.confidence);
+  if(!uncertain)options(p,info);
  }
- // Keep user-followed profiles even after temporarily trashing all related purchases.
- for(const [key,old] of previous)if(old.followed&&!mapped.has(key))mapped.set(key,{...old,itemIds:[],examples:[]});
- state.profiles=[...mapped.values()].sort((a,b)=>b.itemIds.length-a.itemIds.length||a.name.localeCompare(b.name,'ja'));
+ for(const p of mapped.values()){
+  if(p.manualQuery&&p.query&&!p.options.some(x=>x.query===p.query))p.options.unshift({query:p.query,kind:'Your choice',reason:'Previously saved manual search',confidence:1});
+  if(!p.needsReview&&p.query&&!p.options.some(x=>x.query===p.query))p.options.unshift({query:p.query,kind:'Saved',reason:'Your current search (previously saved)',confidence:.5});
+  if(!p.manualQuery&&p.options.length)p.query=p.options[0].query;
+  p.options=p.options.slice(0,10);
+ }
+ // Preserve deliberate followed searches from previous versions but label orphaned
+ // broad profiles explicitly. A user can unfollow them; nothing is deleted silently.
+ for(const [key,old] of previous)if(old.followed&&!mapped.has(key))mapped.set(key,{...old,
+  itemIds:[],examples:[],purchaseExamples:[],options:old.query?[{query:old.query,kind:'Legacy search',reason:'No matching identified purchases; review or unfollow'}]:[],
+  orphaned:true,description:'Legacy followed search. No longer linked to an identified publication.'});
+ state.profiles=[...mapped.values()].sort((a,b)=>{
+  if(!!a.orphaned!==!!b.orphaned)return a.orphaned?1:-1;
+  if(!!a.needsReview!==!!b.needsReview)return a.needsReview?1:-1;
+  return b.itemIds.length-a.itemIds.length||a.name.localeCompare(b.name,'ja');
+ });
 }
 function normalize(r){let title=clean(r.title),url=clean(r.url);if(!title||badTitle(title)||!url)return null;let details=clean(r.details),m=details.match(/Auction ID \/ Order No\s+([^\s]+)/),charge=details.match(/Charge 1\s+([\d,]+)\s+yen/);let key=m?m[1]:url.split('?')[0]+'|'+title;return {id:id(key),title,url,thumbnail:validImage(r.thumbnail)?r.thumbnail:null,details,auctionId:m?m[1]:null,priceYen:charge?Number(charge[1].replace(/,/g,'')):null,marketplace:marketplace(url),page:r.page||null,followed:false,notes:'',suggestions:[],identity:identify(title)}}
 
@@ -292,7 +328,13 @@ app.patch('/api/search-profiles/:id',async(req,res)=>{
  const p=state.profiles.find(p=>p.id===req.params.id);if(!p)return res.status(404).json({error:'Profile not found'});
  if(typeof req.body.followed==='boolean')p.followed=req.body.followed;
  if(typeof req.body.name==='string'){let name=ic(req.body.name).slice(0,100);if(!name)return res.status(400).json({error:'Profile name required'});p.name=name;p.manualName=true}
- if(typeof req.body.query==='string'){let query=ic(req.body.query).slice(0,90);if(query.length<3)return res.status(400).json({error:'Search must be at least 3 characters'});p.query=query;p.manualQuery=true}
+ if(typeof req.body.query==='string'){
+  let query=ic(req.body.query).slice(0,90);
+  if(query.length<3)return res.status(400).json({error:'Search must be at least 3 characters'});
+  if(/^(?:スヌーピー|SNOOPY|パンフレット|雑誌|ムック|本|書籍)$/i.test(query))return res.status(400).json({error:'This is a subject, not a specific publication. Select a fuller title.'});
+  p.query=query;p.manualQuery=true;
+  if(!p.options?.some(o=>o.query===query)){p.options||=[];p.options.unshift({query,kind:'Your choice',reason:'Custom search selected by you',confidence:1})}
+ }
  await save();res.json(p);
 });
 app.patch('/api/items/:id/identity',async(req,res)=>{

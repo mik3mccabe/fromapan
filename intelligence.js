@@ -5,7 +5,7 @@ const digest = s => crypto.createHash('sha256').update(String(s)).digest('hex').
 const clean = s => String(s||'').normalize('NFKC').replace(/\s+/g,' ').trim();
 const NOISE = /(?:クリックポスト|ゆうメール|ゆうパケット|ネコポス|宅急便|レターパック|送料無料|送料込み|送料込|匿名配送|即決|未使用品?|中古(?:本|品)?|古本|古書|美品|希少|激レア|超レア|レア物?|ジャンク|訳あり|出品中?|当時物|昭和レトロ|絶版|傷あり|折れあり|状態良好|入手困難|コレクション|切り抜き|現状品|セット販売|まとめ売り|表紙取れ|表紙外れ|帯付き|付録なし|欠品|ピンナップ付き|切り取りございません|背表紙破れあり|画像\d+参照)/gi;
 const PREFIX = /^(?:[A-Z]{1,4}\d{2,8}[A-Z]?|\d{3,8}[A-Z]{0,3}|[a-z]\d{3,8}|[A-Z0-9]{2,10}[●★◇◆■])\s*/i;
-const GENERIC = /^(?:パンフレット|写真集|雑誌|書籍|ムック|本|漫画|カセット|ゲーム|チラシ|SEGA|BAMBOO MOOK|大判|図鑑|ビデオ|映画)$/i;
+const GENERIC = /^(?:パンフレット|写真集|雑誌|書籍|ムック|本|漫画|カセット|ゲーム|チラシ|SEGA|BAMBOO MOOK|大判|図鑑|ビデオ|映画|スヌーピー|SNOOPY|PEANUTS|ゴジラ|GODZILLA|ポケモン|POKEMON)$/i;
 const ISBN_RE = /(?:\b(?:ISBN(?:-1[03])?\s*[:：]?\s*)?)((?:97[89][\s-]?)?\d[\d\s-]{8,16}[\dXx])\b/g;
 function isbnCheck(candidate){
  const s=candidate.replace(/[\s-]/g,'').toUpperCase();if(!/^(?:\d{9}[\dX]|97[89]\d{10})$/.test(s))return null;
@@ -32,7 +32,7 @@ const SERIES = [
 const WORKS=[
  {re:/セガ[・\s-]*コンシューマー[・\s-]*ヒストリー|SEGA\s+CONSUMER\s+HISTORY/i,ja:'セガ・コンシューマー・ヒストリー',en:'SEGA Consumer History',type:'book',alt:'SEGA CONSUMER HISTORY'},
  {re:/特殊メイクの世界/i,ja:'特殊メイクの世界',en:'The World of Special Effects Makeup',type:'book'},
- {re:/未公開[!！]?\s*恐怖ビデオ/i,ja:'未公開! 恐怖ビデオ',en:'Unreleased Horror Video',type:'book'},
+ {re:/未公開[!！]?\s*恐怖ビデオ/i,ja:'未公開! 恐怖ビデオ',en:'Unreleased Horror Video',type:'book',subtitle:'劇場が拒否した血とエロス'},
  {re:/大ゴジラ図鑑\s*([12一二]?)/i,ja:'大ゴジラ図鑑',en:'Great Godzilla Encyclopedia',type:'book',captureEdition:true},
  {re:/ギャングスタラップカセットの世界/i,ja:'ギャングスタラップカセットの世界',en:'The World of Gangsta Rap Cassettes',type:'book'},
  {re:/バトル[・\s-]*ロワイアル/i,ja:'バトル・ロワイアル',en:'Battle Royale',type:'film'},
@@ -44,9 +44,9 @@ const WORKS=[
  {re:/Lightning Archives.*ヴィンテージTシャツ|ヴィンテージTシャツ.*Lightning/i,ja:'Lightning Archives ヴィンテージTシャツ',en:'Lightning Archives Vintage T-Shirts',type:'book'},
  {re:/THE\s+BEST\s+OF\s+EROTIC\s+JACKET/i,ja:'THE BEST OF EROTIC JACKET',en:'The Best of Erotic Jacket',type:'book'},
  {re:/ROCK\s+T[ -]SHIRTS\s+MUSEUM|ロックTシャツミュージアム/i,ja:'ROCK T-SHIRTS MUSEUM',en:'Rock T-Shirts Museum',type:'book'},
- {re:/スヌーピー[・\s]*ブティック|SNOOPY\s+BOUTIQUE/i,ja:'スヌーピー・ブティック',en:'Snoopy Boutique',type:'book'},
+ {re:/(?:スヌーピー[・\s★☆*]*ブティック|SNOOPY[・\s-]*(?:BOUTIQUE|ブティック))/i,ja:'スヌーピー・ブティック',en:'Snoopy Boutique',type:'book',captureVolume:'snoopy',alt:'SNOOPY BOUTIQUE',subtitle:'ピーナッツ・ヴィンテージ・コレクティブズ'},
  {re:/血しぶきホラーの世界/i,ja:'血しぶきホラーの世界',en:'World of Splatter Horror',type:'book'},
- {re:/THE\s+HORROR\s+MOVIES|ザ[・\s]*ホラー[・\s]*ムービーズ/i,ja:'THE HORROR MOVIES',en:'The Horror Movies',type:'book'},
+ {re:/THE\s+HORROR\s+MOVIES|ザ[・\s]*ホラー[・\s]*ムービーズ/i,ja:'THE HORROR MOVIES',en:'The Horror Movies',type:'book',captureVolume:'horror'},
  {re:/HOLLYWOOD\s+SFX\s+EXHIBITION|ハリウッドSFX展/i,ja:'HOLLYWOOD SFX EXHIBITION',en:'Hollywood SFX Exhibition',type:'book'},
  {re:/前売券シネマグラフ[ィイ]ティ/i,ja:'前売券シネマグラフィティ',en:'Advance Ticket Cinema Graffiti',type:'book'},
  {re:/日本昭和トンデモ児童書大全/i,ja:'日本昭和トンデモ児童書大全',en:'Japanese Showa-era Strange Children’s Books',type:'book'},
@@ -64,8 +64,8 @@ const WORKS=[
  {re:/POCARI\s*SWEAT|ポカリスエット/i,ja:'ポカリスエット',en:'Pocari Sweat',type:'merchandise'}
 ];
 const publishing = t => {
- const p=t.match(/(?:エンターブレイン|集英社|竹書房|グラフィック社|ワニブックス|平凡出版|小学館|講談社|光文社|徳間書店|宝島社)/);
- return p?.[0]||null;
+ const p=t.match(/(?:エンターブレイン|辰巳出版|タツミムック|集英社|竹書房|グラフィック社|ワニブックス|平凡出版|小学館|講談社|光文社|徳間書店|宝島社)/);
+ return p?.[0]==='タツミムック'?'辰巳出版':p?.[0]||null;
 };
 function titleCandidate(title){
  let s=clean(title);
@@ -93,35 +93,64 @@ function candidateConfidence(t){if(!t||GENERIC.test(t)||/^\d+$/.test(t)||t.lengt
  if(/[a-zA-Z]/.test(t)&&t.length<=22)return .57;
  return .2;
 }
+// A title is an identity; keywords and subjects are not. Edition numbers only
+// count if attached to a recognised work, not when they describe a bundle.
+function bookVolume(raw,kind){
+ let re=kind==='snoopy'
+  ? /(?:スヌーピー[・\s★☆*]*ブティック|SNOOPY[・\s-]*(?:BOUTIQUE|ブティック))[\s★☆・-]*(?:vol\.?\s*)?([1-9１-９])(?=\D|$)/i
+  : /(?:THE\s+HORROR\s+MOVIES|ザ[・\s]*ホラー[・\s]*ムービーズ)[\s.・-]*(?:vol\.?\s*)?([1-9１-９])(?=\D|$)/i;
+ // Do not treat 2冊セット (two books sold together) as book 2.
+ let match=raw.match(re);
+ if(!match)return null;
+ return Number(String(match[1]).normalize('NFKC'));
+}
+function describeKnownWork(raw,work,volume){
+ const title=work.ja+(volume?' '+volume:'');
+ const subtitle=work.subtitle&&(raw.includes(work.subtitle)||/ピーナッツ.{0,4}ヴィンテージ|PEANUTS\s+VINTAGE|ヴィンテージ.{0,5}コレクティブ/i.test(raw)&&work.captureVolume==='snoopy')?work.subtitle:'';
+ const publisher=publishing(raw);
+ return {displayTitle:title+(subtitle?' — '+subtitle:''),subtitle,publisher};
+}
 function identify(title,manual){
  const raw=clean(title),date=extractDate(raw),isbn=getIsbn(raw);const publisher=publishing(raw);
- if(manual?.query){const query=clean(manual.query).slice(0,90);return {query,english:clean(manual.english),type:clean(manual.type)||'other',year:date.year,month:date.month,isbn,publisher:clean(manual.publisher)||publisher,confidence:1,status:'reviewed',source:'manual',profileKey:manual.profileKey||null,alternate:clean(manual.alternate),note:'Corrected by you'};}
+ if(manual?.query){const query=clean(manual.query).slice(0,90);return {query,english:clean(manual.english),type:clean(manual.type)||'other',year:date.year,month:date.month,isbn,publisher:clean(manual.publisher)||publisher,confidence:1,status:'reviewed',source:'manual',profileKey:manual.profileKey||null,alternate:clean(manual.alternate),displayTitle:clean(manual.displayTitle)||query,note:'Corrected by you'};}
  // Commemorative books referencing a magazine are distinct from its ordinary issues.
  if(/熱狂.*週刊プレイボーイ.*50周年/.test(raw))return {query:'熱狂 週刊プレイボーイ創刊50周年記念出版',english:'Weekly Playboy 50th Anniversary Book',type:'book',...date,isbn,publisher,confidence:.96,status:'identified',source:'rules',profileKey:null,alternate:'',note:'Special publication, not a magazine issue'};
  const film=WORKS.find(w=>w.re.test(raw));
  if(film){let query=film.ja,english=film.en,type=film.type,alternate=film.alt||'';
  if(film.captureEdition){const n=raw.match(/大ゴジラ図鑑\s*([12一二])/);if(n){const num={'一':'1','二':'2'}[n[1]]||n[1];query+=num;english+=' '+num;}}
+ const volume=film.captureVolume?bookVolume(raw,film.captureVolume):null;
+ if(volume){query+=' '+volume;english+=' '+volume;if(alternate)alternate+=' '+volume;}
  if(type==='film'&&/パンフレット|パンフ[&＆+]|映画パンフ|チラシ/.test(raw)){query+=' パンフレット';type='pamphlet'}
  else if(type==='film'&&/写真集/.test(raw)){query+=' 写真集';type='book'}
- return {query,english,type,...date,isbn,publisher,confidence:.95,status:'identified',source:'rules',profileKey:type==='pamphlet'?query.toLowerCase():null,alternate,note:'Recognised product title'};}
+ const desc=describeKnownWork(raw,film,volume);
+ const isLot=/(?:2\s*冊セット|[2-9]\s*冊(?:セット|まとめ)|全[2-9]冊|まとめ売り)/i.test(raw);
+ // Lots are not single editions. Keep them in a separate, explicitly labelled profile.
+ if(isLot){query=film.ja+' 複数冊セット';english=film.en+' (multi-book lot)';alternate='';}
+ return {query,english,type,...date,isbn,publisher:publisher||desc.publisher,confidence:.95,status:'identified',source:'rules',profileKey:isLot?'lot:'+digest(raw):type==='pamphlet'?query.toLowerCase():null,alternate,displayTitle:isLot?film.ja+' — 複数冊セット':desc.displayTitle,subtitle:desc.subtitle,volume:isLot?null:volume,lot:isLot,note:isLot?'Multi-book lot: contents must be verified':'Recognised product title'};}
  // Deliberately check Japanese edition BEFORE broader Playboy patterns.
  let series=SERIES.find(s=>s.ja==='PLAYBOY 日本版'&&s.re.test(raw))||SERIES.find(s=>s.re.test(raw));
  if(series){const special=/保存版|特別(?:号|篇)|記念(?:出版|号)|総集編/.test(raw);
-  return {query:series.ja,english:series.en,type:'magazine',...date,isbn,publisher,confidence:special?.78:.98,status:'identified',source:'rules',profileKey:'series:'+series.ja,alternate:'',note:special?'Possibly a special issue; review if needed':'Magazine publication'};}
+  return {query:series.ja,english:series.en,type:'magazine',...date,isbn,publisher,confidence:special?.78:.98,status:'identified',source:'rules',profileKey:'series:'+series.ja,alternate:'',displayTitle:series.ja+(date.year?' · '+date.year+(date.month?' / '+date.month:''):''),note:special?'Possibly a special issue; review if needed':'Magazine publication'};}
  const cut=titleCandidate(raw);const conf=candidateConfidence(cut);
- if(conf>=.55)return {query:cut,english:'',type:'other',...date,isbn,publisher,confidence:conf,status:'review',source:'rules',profileKey:null,alternate:'',note:'Title inferred from auction; please confirm'};
+ if(conf>=.55)return {query:cut,english:'',type:'other',...date,isbn,publisher,confidence:conf,status:'review',source:'rules',profileKey:null,alternate:'',displayTitle:cut,note:'Unverified seller description. Confirm the publication title before grouping or monitoring.'};
  return {query:'',english:'',type:'unknown',...date,isbn,publisher,confidence:0,status:'review',source:'rules',profileKey:null,alternate:'',note:'Title unclear. Add a clean title to unlock searches.'};
 }
 function searches(info){
  const out=[];const seen=new Set();const add=(query,kind,reason,confidence,translation='')=>{query=clean(query);if(!query||GENERIC.test(query)||seen.has(query.toLowerCase()))return;seen.add(query.toLowerCase());out.push({id:digest(query),query,kind,reason,confidence,translation,followed:false});};
  if(!info.query)return out;
  add(info.query,'Core','Identified product / publication',info.confidence,info.english);
+ if(info.subtitle&&!info.lot)add(info.query+' '+info.subtitle,'Specific','Title + identifying subtitle',Math.max(.6,info.confidence-.02),info.english);
  if(info.alternate&&info.alternate.toLowerCase()!==info.query.toLowerCase())add(info.alternate,'Alternate','Alternative printed title',info.confidence,info.english);
+ if(info.type!=='magazine'&&!info.lot&&info.type!=='unknown'&&info.english&&/[a-z]{3}/i.test(info.english)&&!info.alternate&&info.english.toLowerCase()!==info.query.toLowerCase())add(info.english,'English title','Search under English title; less precise on Japanese marketplaces',Math.max(.5,info.confidence-.15),'');
+ if(!info.lot&&/^スヌーピー・ブティック/.test(info.query)){
+  add(info.query.replace('スヌーピー・ブティック','スヌーピー ブティック'),'Alternate','Alternate Japanese punctuation',.9,'');
+ }
+
  if(info.type==='magazine'&&info.year){add(`${info.query} ${info.year}`,'Refine','Issues from this year',info.confidence,info.english?`${info.english} (${info.year})`:'');
   if(info.month)add(`${info.query} ${info.year} ${info.month}月`,'Exact','Specific month',info.confidence,'');}
- else if(info.publisher&&info.type==='book'&&info.query.length<35)add(`${info.query} ${info.publisher}`,'Specific','Title + publisher',Math.max(.5,info.confidence-.1),'');
+ else if(info.publisher&&info.type==='book'&&info.query.length<35)add(`${info.query} ${info.publisher}`,'Publisher','Title + publisher',Math.max(.5,info.confidence-.1),'');
  if(info.isbn)add(info.isbn,'ISBN','Exact edition (ISBN)',.99,'');
- return out.slice(0,5);
+ return out.slice(0,6);
 }
 function profileId(info){if(!info.query)return null;return digest('profile:'+String(info.profileKey||info.query).toLocaleLowerCase());}
 function profileLabel(info){return info.query}
